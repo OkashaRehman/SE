@@ -2,99 +2,87 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { patientAPI } from '../api';
-import { LogOut, Search, Calendar, AlertCircle, Heart, Clock, User } from 'lucide-react';
+import { Search, Calendar, AlertCircle, User, Clock, MapPin, Phone } from 'lucide-react';
+import { Button, Card, Badge, Input, Modal, useToast, ToastContainer, Header } from '../components';
 
 export const PatientDashboard = () => {
   const navigate = useNavigate();
-  const { user, token, logout } = useContext(AuthContext);
+  const { user, logout } = useContext(AuthContext);
   const [doctors, setDoctors] = useState([]);
   const [filteredDoctors, setFilteredDoctors] = useState([]);
+  const [appointments, setAppointments] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [slots, setSlots] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState(null);
-  const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [tab, setTab] = useState('book');
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const { toasts, addToast, removeToast } = useToast();
 
   useEffect(() => {
-    fetchDoctors();
-    fetchAppointments();
+    fetchData();
   }, []);
 
-  const fetchDoctors = async () => {
+  const fetchData = async () => {
     try {
-      const { data } = await patientAPI.getDoctors(token);
-      setDoctors(data);
-      setFilteredDoctors(data);
+      const [doctorsData, appointmentsData] = await Promise.all([
+        patientAPI.getDoctors(user?.token),
+        patientAPI.getAppointments(user?.token),
+      ]);
+      setDoctors(doctorsData.data);
+      setFilteredDoctors(doctorsData.data);
+      setAppointments(appointmentsData.data || []);
     } catch (err) {
-      setError('Failed to load doctors');
+      addToast('Failed to load data', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchAppointments = async () => {
-    try {
-      const { data } = await patientAPI.getAppointments(token);
-      setAppointments(data);
-    } catch (err) {
-      console.error('Failed to load appointments');
-    }
-  };
-
   const handleSearch = (term) => {
     setSearchTerm(term);
-    if (!term) {
-      setFilteredDoctors(doctors);
-    } else {
-      setFilteredDoctors(
-        doctors.filter(doc =>
-          doc.name.toLowerCase().includes(term.toLowerCase()) ||
-          doc.doctor_profile?.specialty?.toLowerCase().includes(term.toLowerCase())
-        )
-      );
-    }
+    const filtered = doctors.filter(doc =>
+      doc.name.toLowerCase().includes(term.toLowerCase()) ||
+      (doc.doctor_profile?.specialty || '').toLowerCase().includes(term.toLowerCase())
+    );
+    setFilteredDoctors(filtered);
   };
 
   const handleSelectDoctor = async (doctor) => {
     setSelectedDoctor(doctor);
-    setSelectedSlot(null);
     try {
-      const { data } = await patientAPI.getSlots(doctor._id, token);
+      const { data } = await patientAPI.getSlots(doctor._id, user?.token);
       setSlots(data.filter(slot => slot.status === 'available'));
+      setShowBookingModal(true);
     } catch (err) {
-      setError('Failed to load slots');
+      addToast('Failed to load slots', 'error');
     }
   };
 
   const handleBookAppointment = async () => {
     if (!selectedSlot) {
-      setError('Please select a time slot');
+      addToast('Please select a time slot', 'error');
       return;
     }
     try {
-      await patientAPI.bookAppointment(selectedSlot._id, token);
-      alert('Appointment booked successfully!');
+      await patientAPI.bookAppointment(selectedSlot._id, user?.token);
+      addToast('Appointment booked successfully!', 'success');
+      setShowBookingModal(false);
       setSelectedDoctor(null);
       setSelectedSlot(null);
-      setTab('appointments');
-      fetchAppointments();
+      fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to book appointment');
+      addToast(err.response?.data?.message || 'Failed to book appointment', 'error');
     }
   };
 
   const handleCancelAppointment = async (appointmentId) => {
-    const reason = prompt('Enter cancellation reason:');
-    if (!reason) return;
     try {
-      await patientAPI.cancelAppointment(appointmentId, { reason }, token);
-      alert('Appointment cancelled successfully!');
-      fetchAppointments();
+      await patientAPI.cancelAppointment(appointmentId, { reason: 'User cancelled' }, user?.token);
+      addToast('Appointment cancelled', 'success');
+      fetchData();
     } catch (err) {
-      setError('Failed to cancel appointment');
+      addToast('Failed to cancel appointment', 'error');
     }
   };
 
@@ -103,219 +91,205 @@ export const PatientDashboard = () => {
     navigate('/login');
   };
 
-  const tabStyle = (isActive) => isActive 
-    ? 'border-blue-600 text-blue-600' 
-    : 'border-transparent text-gray-600 hover:text-blue-600';
-
-  const doctorButtonStyle = (isSelected) => isSelected
-    ? 'border-blue-500 bg-blue-50'
-    : 'border-gray-200 bg-white hover:border-blue-300';
-
-  const slotButtonStyle = (isSelected) => isSelected
-    ? 'border-blue-500 bg-blue-50'
-    : 'border-gray-200 bg-white hover:border-blue-300';
-
-  const statusBadgeStyle = (status) => {
-    if (status === 'confirmed') return 'bg-green-100 text-green-700';
-    if (status === 'cancelled') return 'bg-red-100 text-red-700';
-    return 'bg-gray-100 text-gray-700';
-  };
+  const confirmedCount = appointments.filter(a => a.status === 'confirmed').length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 via-blue-500 to-purple-600 text-white shadow-lg">
-        <div className="max-w-7xl mx-auto px-4 py-6 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="bg-white bg-opacity-20 p-2 rounded-lg">
-              <Heart size={24} />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold">SmartClinic</h1>
-              <p className="text-blue-100 text-sm">Patient Dashboard</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="font-semibold">{user?.name}</p>
-              <p className="text-blue-100 text-sm">Patient</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg transition"
-            >
-              <LogOut size={18} /> Logout
-            </button>
-          </div>
-        </div>
-      </div>
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
 
-      {/* Stats */}
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <Header
+        title="Patient Dashboard"
+        subtitle={`Welcome back, ${user?.name}`}
+        actions={[{ icon: User, label: 'Profile', onClick: () => {} }]}
+      />
+
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+          <Card>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm font-medium">Total Doctors</p>
-                <p className="text-3xl font-bold text-blue-600 mt-2">{doctors.length}</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Total Doctors</p>
+                <p className="text-4xl font-bold text-primary-600 mt-2">{doctors.length}</p>
               </div>
-              <User size={24} className="text-blue-600" />
+              <User className="w-12 h-12 text-primary-500 opacity-20" />
             </div>
-          </div>
+          </Card>
 
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
+          <Card>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm font-medium">Upcoming Appointments</p>
-                <p className="text-3xl font-bold text-green-600 mt-2">
-                  {appointments.filter(a => a.status === 'confirmed').length}
-                </p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Upcoming</p>
+                <p className="text-4xl font-bold text-secondary-600 mt-2">{confirmedCount}</p>
               </div>
-              <Calendar size={24} className="text-green-600" />
+              <Calendar className="w-12 h-12 text-secondary-500 opacity-20" />
             </div>
-          </div>
+          </Card>
 
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-purple-500">
+          <Card>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm font-medium">Total Appointments</p>
-                <p className="text-3xl font-bold text-purple-600 mt-2">{appointments.length}</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Total Appointments</p>
+                <p className="text-4xl font-bold text-slate-600 dark:text-slate-300 mt-2">{appointments.length}</p>
               </div>
-              <Clock size={24} className="text-purple-600" />
+              <Clock className="w-12 h-12 text-slate-400 opacity-20" />
             </div>
-          </div>
+          </Card>
         </div>
 
-        {error && (
-          <div className="flex items-center gap-2 p-4 mb-6 bg-red-50 border border-red-200 rounded-lg text-red-700">
-            <AlertCircle size={18} />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="flex gap-2 mb-8 border-b border-gray-200">
-          <button
-            onClick={() => setTab('book')}
-            className={`flex items-center gap-2 px-6 py-3 font-semibold transition border-b-2 ${tabStyle(tab === 'book')}`}
-          >
-            <Calendar size={18} /> Book Appointment
-          </button>
-          <button
-            onClick={() => setTab('appointments')}
-            className={`flex items-center gap-2 px-6 py-3 font-semibold transition border-b-2 ${tabStyle(tab === 'appointments')}`}
-          >
-            <Clock size={18} /> My Appointments
-          </button>
-        </div>
-
-        {/* Book Tab */}
-        {tab === 'book' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-xl font-bold mb-4">Find a Doctor</h2>
-                <div className="mb-4 relative">
-                  <Search className="absolute left-3 top-3 text-gray-400" size={20} />
-                  <input
-                    type="text"
-                    placeholder="Search by name or specialty..."
-                    value={searchTerm}
-                    onChange={(e) => handleSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
-                  />
-                </div>
-
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {loading && <p className="text-gray-500">Loading doctors...</p>}
-                  {!loading && filteredDoctors.length === 0 && <p className="text-gray-500">No doctors found</p>}
-                  {filteredDoctors.map(doctor => (
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Find Doctor */}
+          <div className="lg:col-span-1">
+            <Card>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Find a Doctor</h2>
+              <Input
+                placeholder="Search by name or specialty"
+                value={searchTerm}
+                onChange={(e) => handleSearch(e.target.value)}
+                icon={Search}
+              />
+              <div className="space-y-2 mt-4 max-h-96 overflow-y-auto">
+                {loading ? (
+                  <p className="text-slate-500 text-center py-8">Loading doctors...</p>
+                ) : filteredDoctors.length === 0 ? (
+                  <p className="text-slate-500 text-center py-8">No doctors found</p>
+                ) : (
+                  filteredDoctors.map((doctor) => (
                     <button
                       key={doctor._id}
                       onClick={() => handleSelectDoctor(doctor)}
-                      className={`w-full text-left p-4 rounded-lg border-2 transition ${doctorButtonStyle(selectedDoctor?._id === doctor._id)}`}
+                      className="w-full text-left p-3 rounded-lg border-2 border-slate-200 dark:border-slate-700 hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition"
                     >
-                      <p className="font-semibold text-gray-800">{doctor.name}</p>
-                      <p className="text-sm text-gray-600">{doctor.doctor_profile?.specialty || 'General'}</p>
-                      <p className="text-sm text-green-600 font-semibold">Rs. {doctor.doctor_profile?.consultation_fee || 500}</p>
+                      <p className="font-semibold text-slate-900 dark:text-white">{doctor.name}</p>
+                      <p className="text-sm text-slate-600 dark:text-slate-400">
+                        {doctor.doctor_profile?.specialty || 'General'}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+            </Card>
+          </div>
+
+          {/* Appointments */}
+          <div className="lg:col-span-2">
+            <Card>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-6">My Appointments</h2>
+              {appointments.length === 0 ? (
+                <div className="py-12 text-center">
+                  <Calendar className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+                  <p className="text-slate-600 dark:text-slate-400">No appointments yet</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-500 mt-2">
+                    Find and book a doctor from the list
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {appointments.map((apt) => (
+                    <div
+                      key={apt._id}
+                      className="p-4 border border-slate-200 dark:border-slate-700 rounded-lg hover:shadow-md transition"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className="font-semibold text-slate-900 dark:text-white">
+                            Dr. {apt.doctor_name || 'Unknown'}
+                          </p>
+                          <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 mt-1">
+                            <Calendar className="w-4 h-4" />
+                            {new Date(apt.slot_start_time).toLocaleDateString()}
+                          </div>
+                        </div>
+                        <Badge
+                          variant={apt.status === 'confirmed' ? 'secondary' : 'neutral'}
+                          size="sm"
+                        >
+                          {apt.status}
+                        </Badge>
+                      </div>
+                      {apt.status === 'confirmed' && (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => handleCancelAppointment(apt._id)}
+                        >
+                          Cancel Appointment
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </div>
+        </div>
+      </main>
+
+      {/* Booking Modal */}
+      <Modal
+        isOpen={showBookingModal}
+        onClose={() => {
+          setShowBookingModal(false);
+          setSelectedDoctor(null);
+          setSelectedSlot(null);
+        }}
+        title={selectedDoctor ? `Book with Dr. ${selectedDoctor.name}` : 'Select a Time Slot'}
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowBookingModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleBookAppointment}
+              disabled={!selectedSlot}
+            >
+              Confirm Booking
+            </Button>
+          </>
+        }
+      >
+        {selectedDoctor && (
+          <div className="space-y-6">
+            <Card className="bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800">
+              <p className="text-sm text-slate-600 dark:text-slate-400">Dr. {selectedDoctor.name}</p>
+              <p className="font-semibold text-slate-900 dark:text-white mt-1">
+                {selectedDoctor.doctor_profile?.specialty || 'General Practice'}
+              </p>
+            </Card>
+
+            <div>
+              <h3 className="font-semibold text-slate-900 dark:text-white mb-3">Available Slots</h3>
+              {slots.length === 0 ? (
+                <p className="text-slate-600 dark:text-slate-400">No available slots</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {slots.map((slot) => (
+                    <button
+                      key={slot._id}
+                      onClick={() => setSelectedSlot(slot)}
+                      className={`p-3 rounded-lg border-2 transition text-left ${
+                        selectedSlot?._id === slot._id
+                          ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                          : 'border-slate-300 dark:border-slate-600 hover:border-primary-500'
+                      }`}
+                    >
+                      <p className="font-semibold text-slate-900 dark:text-white text-sm">
+                        {new Date(slot.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                        {new Date(slot.start_time).toLocaleDateString()}
+                      </p>
                     </button>
                   ))}
                 </div>
-              </div>
-            </div>
-
-            <div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-xl font-bold mb-4">Select Time Slot</h2>
-                {selectedDoctor ? (
-                  <>
-                    <p className="text-gray-600 mb-4">Dr. {selectedDoctor.name}</p>
-                    <div className="space-y-2 max-h-96 overflow-y-auto">
-                      {slots.length === 0 && <p className="text-gray-500">No available slots</p>}
-                      {slots.map(slot => (
-                        <button
-                          key={slot._id}
-                          onClick={() => setSelectedSlot(slot)}
-                          className={`w-full p-3 rounded-lg border-2 transition text-left ${slotButtonStyle(selectedSlot?._id === slot._id)}`}
-                        >
-                          <p className="font-semibold text-gray-800">{new Date(slot.start_time).toLocaleString()}</p>
-                          <p className="text-sm text-green-600">Available</p>
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={handleBookAppointment}
-                      disabled={!selectedSlot}
-                      className="w-full mt-6 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition"
-                    >
-                      Confirm Booking
-                    </button>
-                  </>
-                ) : (
-                  <p className="text-gray-500">Select a doctor first</p>
-                )}
-              </div>
+              )}
             </div>
           </div>
         )}
-
-        {/* Appointments Tab */}
-        {tab === 'appointments' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold mb-6">My Appointments</h2>
-            {appointments.length === 0 ? (
-              <p className="text-gray-500">No appointments yet</p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {appointments.map(apt => (
-                  <div key={apt._id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <p className="font-semibold text-gray-800">Dr. {apt.doctor_name || 'Unknown'}</p>
-                        <p className="text-sm text-gray-600">{new Date(apt.slot_start_time).toLocaleString()}</p>
-                      </div>
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusBadgeStyle(apt.status)}`}>
-                        {apt.status}
-                      </span>
-                    </div>
-                    {apt.status === 'cancelled' && apt.cancellation_reason && (
-                      <p className="text-sm text-gray-600 mb-3">Reason: {apt.cancellation_reason}</p>
-                    )}
-                    {apt.status === 'confirmed' && (
-                      <button
-                        onClick={() => handleCancelAppointment(apt._id)}
-                        className="w-full text-red-600 hover:text-red-700 font-semibold py-2 rounded transition"
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      </Modal>
     </div>
   );
 };

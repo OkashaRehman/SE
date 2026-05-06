@@ -2,24 +2,18 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { adminAPI } from '../api';
-import { LogOut, AlertCircle, Users, Calendar, BarChart3, CheckCircle, XCircle, Shield, Trash2 } from 'lucide-react';
+import { Users, Calendar, AlertCircle, Plus } from 'lucide-react';
+import { Button, Card, Badge, Header, useToast, ToastContainer } from '../components';
 
 export const AdminDashboard = () => {
   const navigate = useNavigate();
-  const { user, token, logout } = useContext(AuthContext);
-  const [tab, setTab] = useState('users');
+  const { user, logout } = useContext(AuthContext);
   const [users, setUsers] = useState([]);
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [cancellations, setCancellations] = useState([]);
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-
-  // New user form
-  const [newUserName, setNewUserName] = useState('');
-  const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserPassword, setNewUserPassword] = useState('');
-  const [newUserRole, setNewUserRole] = useState('patient');
-  const [newUserSpecialty, setNewUserSpecialty] = useState('');
+  const [activeTab, setActiveTab] = useState('users');
+  const { toasts, addToast, removeToast } = useToast();
 
   useEffect(() => {
     fetchData();
@@ -28,72 +22,37 @@ export const AdminDashboard = () => {
   const fetchData = async () => {
     try {
       const [usersRes, leaveRes, cancelRes] = await Promise.all([
-        adminAPI.getUsers(token),
-        adminAPI.getLeaveRequests(token),
-        adminAPI.getCancellations(token),
+        adminAPI.getUsers(user?.token),
+        adminAPI.getLeaveRequests(user?.token),
+        adminAPI.getCancellations(user?.token),
       ]);
-      setUsers(usersRes.data);
-      setLeaveRequests(leaveRes.data);
-      setCancellations(cancelRes.data);
+      setUsers(usersRes.data || []);
+      setLeaveRequests(leaveRes.data || []);
+      setCancellations(cancelRes.data || []);
     } catch (err) {
-      setError('Failed to load data');
+      addToast('Failed to load data', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreateUser = async () => {
-    if (!newUserName || !newUserEmail || !newUserPassword) {
-      setError('Please fill all required fields');
-      return;
-    }
-    try {
-      await adminAPI.createUser(
-        { name: newUserName, email: newUserEmail, password: newUserPassword, role: newUserRole, specialty: newUserSpecialty },
-        token
-      );
-      setNewUserName('');
-      setNewUserEmail('');
-      setNewUserPassword('');
-      setNewUserRole('patient');
-      setNewUserSpecialty('');
-      alert('User created successfully!');
-      fetchData();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to create user');
-    }
-  };
-
-  const handleDeactivateUser = async (userId) => {
-    if (window.confirm('Are you sure you want to deactivate this user?')) {
-      try {
-        await adminAPI.deactivateUser(userId, token);
-        alert('User deactivated successfully!');
-        fetchData();
-      } catch (err) {
-        setError('Failed to deactivate user');
-      }
-    }
-  };
-
   const handleApproveLeave = async (leaveId) => {
     try {
-      await adminAPI.approveLeaveRequest(leaveId, token);
-      alert('Leave request approved!');
+      await adminAPI.approveLeaveRequest(leaveId, user?.token);
+      addToast('Leave request approved', 'success');
       fetchData();
     } catch (err) {
-      setError('Failed to approve leave request');
+      addToast('Failed to approve leave request', 'error');
     }
   };
 
   const handleRejectLeave = async (leaveId) => {
-    const comment = prompt('Enter rejection comment (optional):');
     try {
-      await adminAPI.rejectLeaveRequest(leaveId, { comment: comment || '' }, token);
-      alert('Leave request rejected!');
+      await adminAPI.rejectLeaveRequest(leaveId, {}, user?.token);
+      addToast('Leave request rejected', 'success');
       fetchData();
     } catch (err) {
-      setError('Failed to reject leave request');
+      addToast('Failed to reject leave request', 'error');
     }
   };
 
@@ -102,272 +61,153 @@ export const AdminDashboard = () => {
     navigate('/login');
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-6 flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-blue-600">SmartClinic - Admin Portal</h1>
-            <p className="text-gray-600">Welcome, {user?.name}</p>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg"
-          >
-            <LogOut size={18} /> Logout
-          </button>
-        </div>
-      </div>
+  const activeUsers = users.filter(u => u.is_active).length;
+  const inactiveUsers = users.filter(u => !u.is_active).length;
+  const pendingLeaves = leaveRequests.filter(l => l.status === 'pending').length;
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {error && (
-          <div className="flex items-center gap-2 p-4 mb-6 bg-red-50 border border-red-200 rounded-lg text-red-700">
-            <AlertCircle size={18} />
-            <span>{error}</span>
-          </div>
-        )}
+  return (
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+      <Header
+        title="Admin Dashboard"
+        subtitle={`Welcome back, ${user?.name}`}
+        actions={[{ icon: Users, label: 'Users', onClick: () => setActiveTab('users') }]}
+      />
+
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <Card>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Total Users</p>
+                <p className="text-4xl font-bold text-primary-600 mt-2">{users.length}</p>
+              </div>
+              <Users className="w-12 h-12 text-primary-500 opacity-20" />
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Active Users</p>
+                <p className="text-4xl font-bold text-secondary-600 mt-2">{activeUsers}</p>
+              </div>
+              <Users className="w-12 h-12 text-secondary-500 opacity-20" />
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Pending Leaves</p>
+                <p className="text-4xl font-bold text-medical-600 mt-2">{pendingLeaves}</p>
+              </div>
+              <Calendar className="w-12 h-12 text-medical-500 opacity-20" />
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Cancellations</p>
+                <p className="text-4xl font-bold text-slate-600 dark:text-slate-300 mt-2">
+                  {cancellations.length}
+                </p>
+              </div>
+              <AlertCircle className="w-12 h-12 text-slate-400 opacity-20" />
+            </div>
+          </Card>
+        </div>
 
         {/* Tabs */}
-        <div className="flex gap-4 mb-8 overflow-x-auto">
-          {['users', 'leave', 'cancellations', 'analytics'].map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-6 py-2 rounded-lg font-semibold transition whitespace-nowrap ${
-                tab === t
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              {t === 'users' && 'User Management'}
-              {t === 'leave' && 'Leave Requests'}
-              {t === 'cancellations' && 'Cancellations'}
-              {t === 'analytics' && <><BarChart3 size={18} /> Analytics</>}
-            </button>
-          ))}
+        <div className="flex gap-4 mb-6">
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-6 py-3 rounded-lg font-semibold transition ${
+              activeTab === 'users'
+                ? 'bg-primary-500 text-white'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+            }`}
+          >
+            Users
+          </button>
+          <button
+            onClick={() => setActiveTab('leaves')}
+            className={`px-6 py-3 rounded-lg font-semibold transition ${
+              activeTab === 'leaves'
+                ? 'bg-primary-500 text-white'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+            }`}
+          >
+            Leave Requests
+          </button>
+          <button
+            onClick={() => setActiveTab('cancellations')}
+            className={`px-6 py-3 rounded-lg font-semibold transition ${
+              activeTab === 'cancellations'
+                ? 'bg-primary-500 text-white'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+            }`}
+          >
+            Cancellations
+          </button>
         </div>
 
-        {/* User Management Tab */}
-        {tab === 'users' && (
-          <div className="space-y-6">
-            {/* Create User Form */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-xl font-bold mb-6">Create New User</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                  <input
-                    type="text"
-                    value={newUserName}
-                    onChange={(e) => setNewUserName(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="John Doe"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={newUserEmail}
-                    onChange={(e) => setNewUserEmail(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="john@example.com"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                  <input
-                    type="password"
-                    value={newUserPassword}
-                    onChange={(e) => setNewUserPassword(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="••••••••"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                  <select
-                    value={newUserRole}
-                    onChange={(e) => setNewUserRole(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  >
-                    <option value="patient">Patient</option>
-                    <option value="doctor">Doctor</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-                {newUserRole === 'doctor' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Specialty</label>
-                    <input
-                      type="text"
-                      value={newUserSpecialty}
-                      onChange={(e) => setNewUserSpecialty(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                      placeholder="Cardiology"
-                    />
-                  </div>
-                )}
-                <div className="flex items-end">
-                  <button
-                    onClick={handleCreateUser}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 rounded-lg transition flex items-center justify-center gap-2"
-                  >
-                    <Plus size={18} /> Create User
-                  </button>
-                </div>
-              </div>
+        {/* Content */}
+        {activeTab === 'users' && (
+          <Card>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">User Management</h2>
+              <Button variant="primary" size="sm">
+                <Plus className="w-4 h-4" />
+                Add User
+              </Button>
             </div>
-
-            {/* Users List */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-xl font-bold mb-6">All Users</h2>
-              {loading ? (
-                <p className="text-gray-500">Loading...</p>
-              ) : users.length === 0 ? (
-                <p className="text-gray-500">No users found</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b-2 border-gray-300">
-                        <th className="text-left py-3 px-4 font-semibold">Name</th>
-                        <th className="text-left py-3 px-4 font-semibold">Email</th>
-                        <th className="text-left py-3 px-4 font-semibold">Role</th>
-                        <th className="text-left py-3 px-4 font-semibold">Specialty</th>
-                        <th className="text-left py-3 px-4 font-semibold">Status</th>
-                        <th className="text-left py-3 px-4 font-semibold">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {users.map((u) => (
-                        <tr key={u._id} className="border-b border-gray-200 hover:bg-gray-50">
-                          <td className="py-3 px-4">{u.name}</td>
-                          <td className="py-3 px-4">{u.email}</td>
-                          <td className="py-3 px-4">
-                            <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
-                              {u.role}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">{u.doctor_profile?.specialty || '-'}</td>
-                          <td className="py-3 px-4">
-                            <span
-                              className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                                u.is_active
-                                  ? 'bg-green-100 text-green-700'
-                                  : 'bg-red-100 text-red-700'
-                              }`}
-                            >
-                              {u.is_active ? 'Active' : 'Inactive'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            {u.is_active && (
-                              <button
-                                onClick={() => handleDeactivateUser(u._id)}
-                                className="text-red-600 hover:text-red-700 font-semibold"
-                              >
-                                Deactivate
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Leave Requests Tab */}
-        {tab === 'leave' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold mb-6">Leave Requests</h2>
-            {leaveRequests.length === 0 ? (
-              <p className="text-gray-500">No leave requests</p>
-            ) : (
-              <div className="space-y-4">
-                {leaveRequests.map((req) => (
-                  <div key={req._id} className="p-4 border border-gray-200 rounded-lg">
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <p className="font-semibold text-lg">Dr. {req.doctor_name}</p>
-                        <p className="text-gray-600">Reason: {req.reason}</p>
-                        <p className="text-sm text-gray-600">
-                          From {new Date(req.start_date).toLocaleDateString()} to{' '}
-                          {new Date(req.end_date).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <span
-                        className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                          req.status === 'pending'
-                            ? 'bg-yellow-100 text-yellow-700'
-                            : req.status === 'approved'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-red-100 text-red-700'
-                        }`}
-                      >
-                        {req.status}
-                      </span>
-                    </div>
-                    {req.status === 'pending' && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleApproveLeave(req._id)}
-                          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleRejectLeave(req._id)}
-                          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Cancellations Tab */}
-        {tab === 'cancellations' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold mb-6">Appointment Cancellations</h2>
-            {cancellations.length === 0 ? (
-              <p className="text-gray-500">No cancellations recorded</p>
+            {loading ? (
+              <div className="text-center py-8 text-slate-500">Loading...</div>
+            ) : users.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">No users found</div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full">
                   <thead>
-                    <tr className="border-b-2 border-gray-300">
-                      <th className="text-left py-3 px-4 font-semibold">Patient</th>
-                      <th className="text-left py-3 px-4 font-semibold">Doctor</th>
-                      <th className="text-left py-3 px-4 font-semibold">Cancelled By</th>
-                      <th className="text-left py-3 px-4 font-semibold">Reason</th>
-                      <th className="text-left py-3 px-4 font-semibold">Date</th>
+                    <tr className="border-b border-slate-200 dark:border-slate-700">
+                      <th className="text-left py-3 px-4 font-semibold text-slate-900 dark:text-white">
+                        Name
+                      </th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-900 dark:text-white">
+                        Email
+                      </th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-900 dark:text-white">
+                        Role
+                      </th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-900 dark:text-white">
+                        Status
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {cancellations.map((c) => (
-                      <tr key={c._id} className="border-b border-gray-200 hover:bg-gray-50">
-                        <td className="py-3 px-4">{c.patient_name}</td>
-                        <td className="py-3 px-4">Dr. {c.doctor_name}</td>
+                    {users.map((u) => (
+                      <tr
+                        key={u._id}
+                        className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      >
+                        <td className="py-3 px-4 text-slate-900 dark:text-white">{u.name}</td>
+                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{u.email}</td>
                         <td className="py-3 px-4">
-                          <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-semibold">
-                            {c.cancellation_role}
-                          </span>
+                          <Badge variant="primary" size="sm">
+                            {u.role}
+                          </Badge>
                         </td>
-                        <td className="py-3 px-4">{c.cancellation_reason || 'No reason provided'}</td>
                         <td className="py-3 px-4">
-                          {new Date(c.createdAt).toLocaleDateString()}
+                          <Badge
+                            variant={u.is_active ? 'secondary' : 'danger'}
+                            size="sm"
+                          >
+                            {u.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
                         </td>
                       </tr>
                     ))}
@@ -375,26 +215,102 @@ export const AdminDashboard = () => {
                 </table>
               </div>
             )}
-          </div>
+          </Card>
         )}
 
-        {/* Analytics Tab */}
-        {tab === 'analytics' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold mb-6">Clinic Analytics</h2>
-            <p className="text-gray-600">
-              Analytics dashboard will display:
-              <br />- Total appointments this week
-              <br />- Busiest doctors
-              <br />- Peak hours
-              <br />- Cancellation rate breakdown
-            </p>
-            <p className="text-gray-500 mt-4">
-              (Full charting implementation with Chart.js coming in Sprint 2)
-            </p>
-          </div>
+        {activeTab === 'leaves' && (
+          <Card>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-6">
+              Leave Requests
+            </h2>
+            {loading ? (
+              <div className="text-center py-8 text-slate-500">Loading...</div>
+            ) : leaveRequests.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">No leave requests</div>
+            ) : (
+              <div className="space-y-4 max-h-96 overflow-y-auto">
+                {leaveRequests.map((leave) => (
+                  <div
+                    key={leave._id}
+                    className="p-4 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                          Dr. {leave.doctor_name || 'Doctor'}
+                        </p>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                          {new Date(leave.start_date).toLocaleDateString()} -{' '}
+                          {new Date(leave.end_date).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={
+                          leave.status === 'pending'
+                            ? 'warning'
+                            : leave.status === 'approved'
+                              ? 'secondary'
+                              : 'danger'
+                        }
+                        size="sm"
+                      >
+                        {leave.status}
+                      </Badge>
+                    </div>
+                    {leave.status === 'pending' && (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleApproveLeave(leave._id)}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => handleRejectLeave(leave._id)}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
         )}
-      </div>
+
+        {activeTab === 'cancellations' && (
+          <Card>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-6">
+              Appointment Cancellations
+            </h2>
+            {loading ? (
+              <div className="text-center py-8 text-slate-500">Loading...</div>
+            ) : cancellations.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">No cancellations</div>
+            ) : (
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {cancellations.map((cancel) => (
+                  <div
+                    key={cancel._id}
+                    className="p-4 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  >
+                    <p className="font-semibold text-slate-900 dark:text-white">
+                      {cancel.patient_name || 'Patient'} - Dr. {cancel.doctor_name || 'Doctor'}
+                    </p>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                      {cancel.cancellation_reason || 'No reason provided'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+      </main>
     </div>
   );
 };

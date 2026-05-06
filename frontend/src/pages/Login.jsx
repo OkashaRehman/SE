@@ -1,124 +1,144 @@
 import React, { useState, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { authAPI } from '../api';
 import { AuthContext } from '../context/AuthContext';
-import { AlertCircle, Loader, Heart, Mail, Lock } from 'lucide-react';
+import { Mail, Lock, AlertCircle } from 'lucide-react';
+import { Button, Input, Card, useToast, ToastContainer } from '../components';
 
 export const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
   const navigate = useNavigate();
   const { login } = useContext(AuthContext);
+  const { toasts, addToast, removeToast } = useToast();
+
+  const validateForm = () => {
+    const newErrors = {};
+    if (!email) newErrors.email = 'Email is required';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) newErrors.email = 'Invalid email format';
+    if (!password) newErrors.password = 'Password is required';
+    return newErrors;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    const newErrors = validateForm();
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
     setLoading(true);
+    setErrors({});
+
     try {
       const { data } = await authAPI.login({ email, password });
       login(data, data.token);
-      navigate(`/${data.role}/dashboard`);
+      addToast(`Welcome back, ${data.name}!`, 'success');
+      
+      setTimeout(() => {
+        navigate(`/${data.role}/dashboard`);
+      }, 500);
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed');
+      const errorMessage = err.response?.data?.message || 'Login failed. Please try again.';
+      addToast(errorMessage, 'error');
+      setErrors({ submit: errorMessage });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 via-blue-500 to-purple-600 flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background decorative elements */}
-      <div className="absolute top-0 left-0 w-96 h-96 bg-blue-400 rounded-full opacity-10 blur-3xl -translate-x-1/2 -translate-y-1/2"></div>
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-purple-400 rounded-full opacity-10 blur-3xl translate-x-1/2 translate-y-1/2"></div>
+    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-secondary-50 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center p-4">
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
 
-      <div className="w-full max-w-md relative z-10">
-        {/* Header Brand */}
+      <div className="w-full max-w-md">
+        {/* Logo Section */}
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="bg-white rounded-full p-3">
-              <Heart className="text-blue-600" size={32} />
-            </div>
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-500 rounded-xl shadow-lg mb-4">
+            <span className="text-2xl font-bold text-white">SC</span>
           </div>
-          <h1 className="text-4xl font-bold text-white mb-2">SmartClinic</h1>
-          <p className="text-blue-100 text-lg">Healthcare Management Portal</p>
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">SmartClinic</h1>
+          <p className="text-slate-600 dark:text-slate-400 mt-2">Healthcare Management System</p>
         </div>
 
-        {/* Login Card */}
-        <div className="bg-white rounded-2xl shadow-2xl p-8 backdrop-blur-sm">
-          <h2 className="text-2xl font-bold text-gray-800 mb-1">Welcome Back</h2>
-          <p className="text-gray-600 mb-6">Sign in to your account to continue</p>
+        {/* Login Form Card */}
+        <Card className="shadow-xl">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">Welcome Back</h2>
+          <p className="text-slate-600 dark:text-slate-400 text-sm mb-6">Sign in to your account to continue</p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {error && (
-              <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
-                <AlertCircle size={20} className="flex-shrink-0" />
-                <span className="text-sm font-medium">{error}</span>
+            <Input
+              label="Email Address"
+              type="email"
+              placeholder="your@email.com"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (errors.email) setErrors({ ...errors, email: '' });
+              }}
+              error={errors.email}
+              icon={Mail}
+              required
+            />
+
+            <Input
+              label="Password"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (errors.password) setErrors({ ...errors, password: '' });
+              }}
+              error={errors.password}
+              icon={Lock}
+              required
+            />
+
+            {errors.submit && (
+              <div className="p-4 bg-medical-50 dark:bg-medical-900 border border-medical-200 dark:border-medical-700 rounded-lg text-medical-700 dark:text-medical-200 text-sm font-semibold flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                {errors.submit}
               </div>
             )}
 
-            {/* Email Field */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Email Address</label>
-              <div className="relative">
-                <Mail className="absolute left-4 top-3.5 text-gray-400" size={18} />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition bg-gray-50 focus:bg-white"
-                  placeholder="your@email.com"
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Password Field */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Password</label>
-              <div className="relative">
-                <Lock className="absolute left-4 top-3.5 text-gray-400" size={18} />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition bg-gray-50 focus:bg-white"
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Login Button */}
-            <button
+            <Button
               type="submit"
+              variant="primary"
+              size="lg"
+              fullWidth
+              loading={loading}
               disabled={loading}
-              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold py-3 rounded-xl transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-6"
             >
-              {loading ? <Loader size={20} className="animate-spin" /> : null}
               {loading ? 'Signing in...' : 'Sign In'}
-            </button>
+            </Button>
           </form>
 
-          {/* Register Link */}
-          <p className="text-center text-gray-600 mt-6">
-            Don't have an account?{' '}
-            <button onClick={() => navigate('/register')} className="text-blue-600 hover:text-blue-700 font-bold transition">
-              Create one now
-            </button>
-          </p>
-
-          {/* Demo Accounts Info */}
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <p className="text-xs text-gray-500 text-center mb-3 font-semibold">DEMO ACCOUNTS</p>
-            <div className="space-y-2 text-xs">
-              <p className="text-gray-600"><span className="font-semibold">Patient:</span> patient@example.com</p>
-              <p className="text-gray-600"><span className="font-semibold">Doctor:</span> doctor@example.com</p>
-              <p className="text-gray-600"><span className="font-semibold">Admin:</span> admin@example.com</p>
-              <p className="text-gray-500 mt-2">Password for all: <span className="font-mono">password123</span></p>
-            </div>
+          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+            <p className="text-center text-slate-600 dark:text-slate-400 text-sm">
+              Don&apos;t have an account?{' '}
+              <Link
+                to="/register"
+                className="text-primary-600 dark:text-primary-400 font-semibold hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
+              >
+                Sign up here
+              </Link>
+            </p>
           </div>
+        </Card>
+
+        {/* Demo Credentials */}
+        <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+          <p className="text-xs text-blue-900 dark:text-blue-200">
+            <span className="font-semibold">Demo Credentials:</span>
+          </p>
+          <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+            Email: demo@email.com | Password: password123
+          </p>
         </div>
       </div>
     </div>
